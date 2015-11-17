@@ -1,14 +1,33 @@
+# -*- coding: utf-8 -*-
 __author__ = 'zhanghengyang'
 
 from pymongo import MongoClient
+from coordinate_trans import wrong_baidu_to_right_baidu
 import arrow
 import json
 import requests
-client = MongoClient("mongodb://senzhub:Senz2everyone@119.254.111.40:27017")
+import leancloud
+from leancloud import Query, Object
 
+# mongodb init
+client = MongoClient("mongodb://senzhub:Senz2everyone@119.254.111.40:27017")
 db = client.RefinedLog
 
-1436787570079
+# senz.log.tracer appid,appkey
+tracer_app_id = "9ra69chz8rbbl77mlplnl4l2pxyaclm612khhytztl8b1f9o"
+tracer_app_key = "1zohz2ihxp9dhqamhfpeaer8nh1ewqd9uephe9ztvkka544b"
+
+#找出所有ios用户
+leancloud.init(tracer_app_id, tracer_app_key)
+User = Object.extend("_User")
+user_query = Query(User)
+user_query.equal_to("os","ios")
+userids = [ user.get("objectId")for user in user_query.find()]
+
+#从哪个时间点之前开始更新数据
+axis_wrong_date = '2015-11-14T12:34:00.000+08:00'
+time = arrow.get(axis_wrong_date)
+
 
 cur_ts = arrow.now().timestamp * 1000
 
@@ -19,8 +38,12 @@ for location in db.UserLocation.find({"timestamp": {"$lt":cur_ts}}):
         lat = location.get("location")["lat"]
         lng = location.get("location")["lng"]
         timestamp = location.get("timestamp")
+        if timestamp < time.timestamp * 1000 and user_id in userids :
+            right_location = wrong_baidu_to_right_baidu({"lat":lat, "lng":lng})
+            lat = right_location["lat"]
+            lng = right_location["lng"]
         user_id = location.get("user_id")
-        id = location.id
+        id = location.get("_id")
 
         r_p = {
             "user_trace":[
@@ -56,7 +79,8 @@ for location in db.UserLocation.find({"timestamp": {"$lt":cur_ts}}):
                     "near_home_office":near_home_office,
                     "poiProbLv2":poiProbLv2,
                     "poiProbLv1":poiProbLv1,
-                    "updateAt": arrow.now().ctime()
+                    "updateAt": arrow.now().ctime(),
+                    "location": {"lat":lat,"lng":lng}
 
                 },
                 "$currentDate": {"lastModified": True}
