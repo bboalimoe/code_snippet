@@ -12,7 +12,7 @@ from leancloud import Query, Object
 # mongodb init
 client = MongoClient("mongodb://senzhub:Senz2everyone@119.254.111.40:27017")
 db = client.RefinedLog
-
+update_timestamp_one = 1447612625 * 1000
 # senz.log.tracer appid,appkey
 tracer_app_id = "9ra69chz8rbbl77mlplnl4l2pxyaclm612khhytztl8b1f9o"
 tracer_app_key = "1zohz2ihxp9dhqamhfpeaer8nh1ewqd9uephe9ztvkka544b"
@@ -22,30 +22,45 @@ leancloud.init(tracer_app_id, tracer_app_key)
 User = Object.extend("_User")
 user_query = Query(User)
 user_query.equal_to("os","ios")
-userids = [ user.get("objectId")for user in user_query.find()]
+userids = [ user.id for user in user_query.find()]
 
-#从哪个时间点之前开始更新数据
+#从哪个时间点之前开始更新数据.11-14 中午之前数据有问题。
 axis_wrong_date = '2015-11-14T12:34:00.000+08:00'
 time = arrow.get(axis_wrong_date)
-
+time_before = 1441036800000
+defaultTag = "2015-11-18"
 
 cur_ts = arrow.now().timestamp * 1000
 
-for location in db.UserLocation.find({"timestamp": {"$lt":cur_ts}}):
+cursor = db.UserLocation.find({"timestamp": {"$lt":cur_ts}}).sort("timestamp", -1)
+location_count = cursor.count()
 
-    try:
+for i in range(location_count/50 + 1):
+
+
+
+    for location in db.UserLocation.find({"timestamp": {"$lt":cur_ts}}).sort("timestamp", -1).skip(i*50).limit(50):
+
+
         print location.get("objectId")
         lat = location.get("location")["lat"]
         lng = location.get("location")["lng"]
         timestamp = location.get("timestamp")
-        if timestamp < time.timestamp * 1000 and user_id in userids :
+        print timestamp
+        user_id = location.get("user_id")
+        isIosAxisConverted = location.get("isIosAxisConverted",0)
+        updatedTag = location.get("updatedTag", "")
+
+        if time_before < timestamp < time.timestamp * 1000 and user_id in userids and isIosAxisConverted == 0 :
             right_location = wrong_baidu_to_right_baidu({"lat":lat, "lng":lng})
             lat = right_location["lat"]
             lng = right_location["lng"]
-        user_id = location.get("user_id")
+            isIosAxisConverted = 1
         id = location.get("_id")
 
-        r_p = {
+        if updatedTag != defaultTag:
+
+            r_p = {
             "user_trace":[
                         {
                         "timestamp":timestamp,
@@ -59,37 +74,43 @@ for location in db.UserLocation.find({"timestamp": {"$lt":cur_ts}}):
                     "dev_key":"senz",
                     "userId": user_id
                     }
+            poi_url = "https://api.trysenz.com" +  "/pois/location_probability/"
+            headers = {"Content-Type":"application/json"}
+            data = json.dumps(r_p)
+            res = requests.post(poi_url, data=data, headers=headers)
+            content = json.loads(res.content)
+            if "home_office_label" not in content.keys():
+                near_home_office = "unknown"
+            else:
+                near_home_office = content["home_office_label"]
 
-        poi_url = "https://api.trysenz.com" +  "/pois/location_probability/"
-        headers = {"Content-Type":"application/json"}
-        data = json.dumps(r_p)
-        res = requests.post(poi_url, data=data, headers=headers)
-        content = json.loads(res.content)
-        near_home_office = content["home_office_label"]
-        poiProbLv2 = poiProbLv1 = {}
-        for key in content["results"]["poi_probability"][0].keys():
-            poiProbLv1.setdefault(key, content["results"]["poi_probability"][0][key]["level1_prob"])
-            for lv2_key in content["results"]["poi_probability"][0][key]["level2_prob"].keys():
-                poiProbLv2.setdefault(lv2_key, content["results"]["poi_probability"][0][key]["level2_prob"][lv2_key])
+            poiProbLv2 = poiProbLv1 = {}
+            for key in content["results"]["poi_probability"][0].keys():
+                poiProbLv1.setdefault(key, content["results"]["poi_probability"][0][key]["level1_prob"])
+                for lv2_key in content["results"]["poi_probability"][0][key]["level2_prob"].keys():
+                    poiProbLv2.setdefault(lv2_key, content["results"]["poi_probability"][0][key]["level2_prob"][lv2_key])
 
-        result = db.UserLocation.update_one(
-            {"_id":id},
-            {
-                "$set":{
-                    "near_home_office":near_home_office,
-                    "poiProbLv2":poiProbLv2,
-                    "poiProbLv1":poiProbLv1,
-                    "updateAt": arrow.now().ctime(),
-                    "location": {"lat":lat,"lng":lng}
+            result = db.UserLocation.update_one(
+                {"_id":id},
+                {
+                    "$set":{
+                        "near_home_office":near_home_office,
+                        "poiProbLv2":poiProbLv2,
+                        "poiProbLv1":poiProbLv1,
+                        "updatedAt": arrow.now().ctime(),
+                        "location": {"lat":lat,"lng":lng},
+                        "isIosAxisConverted":isIosAxisConverted,
+                        "updatedTag": defaultTag
 
-                },
-                "$currentDate": {"lastModified": True}
-            }
-        )
-        print result.matched_count,"objects updated"
-    except Exception, e:
-        print Exception,e
+                    },
+                    "$currentDate": {"lastModified": True}
+                }
+            )
+            print result.matched_count,"objects updated"
 
+
+
+print "finished"
 
 
 '''
