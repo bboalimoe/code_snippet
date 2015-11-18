@@ -28,7 +28,7 @@ userids = [ user.id for user in user_query.find()]
 axis_wrong_date = '2015-11-14T12:34:00.000+08:00'
 time = arrow.get(axis_wrong_date)
 time_before = 1441036800000
-defaultTag = "2015-11-18"
+defaultTag = "2015-11-19"
 
 cur_ts = arrow.now().timestamp * 1000
 
@@ -84,7 +84,8 @@ for i in range(location_count/50 + 1):
             else:
                 near_home_office = content["home_office_label"]
 
-            poiProbLv2 = poiProbLv1 = {}
+            poiProbLv2 = {}
+            poiProbLv1 = {}
             for key in content["results"]["poi_probability"][0].keys():
                 poiProbLv1.setdefault(key, content["results"]["poi_probability"][0][key]["level1_prob"])
                 for lv2_key in content["results"]["poi_probability"][0][key]["level2_prob"].keys():
@@ -95,6 +96,7 @@ for i in range(location_count/50 + 1):
                 {
                     "$set":{
                         "near_home_office":near_home_office,
+                        "pois": content["results"]["pois"],
                         "poiProbLv2":poiProbLv2,
                         "poiProbLv1":poiProbLv1,
                         "updatedAt": arrow.now().ctime(),
