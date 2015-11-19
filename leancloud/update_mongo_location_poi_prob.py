@@ -11,22 +11,65 @@ import leancloud
 from leancloud import Query, Object
 
 
+# mongodb init
+client = MongoClient("mongodb://senzhub:Senz2everyone@119.254.111.40:27017")
+db = client.RefinedLog
+update_timestamp_one = 1447612625 * 1000
+# senz.log.tracer appid,appkey
+tracer_app_id = "9ra69chz8rbbl77mlplnl4l2pxyaclm612khhytztl8b1f9o"
+tracer_app_key = "1zohz2ihxp9dhqamhfpeaer8nh1ewqd9uephe9ztvkka544b"
+
+timeline_APP_ID = "pin72fr1iaxb7sus6newp250a4pl2n5i36032ubrck4bej81"
+timeline_APP_KEY = "qs4o5iiywp86eznvok4tmhul360jczk7y67qj0ywbcq35iia"
+
+# 找出所有ios用户
+leancloud.init(timeline_APP_ID, timeline_APP_KEY)
+User = Object.extend("_User")
+UserLocation = Object.extend("UserLocation")
+user_query = Query(User)
+user_query.equal_to("os", "ios")
+userids = [user.id for user in user_query.find()]
+# 从哪个时间点之前开始更新数据.11-14 中午之前数据有问题。
+axis_wrong_date = '2015-11-14T12:34:00.000+08:00'
+time = arrow.get(axis_wrong_date)
+time_before = 1441036800000
+defaultTag = "2015-11-20"
+cur_ts = arrow.now().timestamp * 1000
+
+
 def update_worker(input_location):
-    print input_location.get("objectId")
+    location_query = Query(UserLocation)
+    objectId = input_location.get("objectId")
+    print objectId
+    updatedTag = input_location.get("updatedTag", "")
+    timestamp = input_location.get("timestamp")
+
     lat = input_location.get("location")["lat"]
     lng = input_location.get("location")["lng"]
-    timestamp = input_location.get("timestamp")
+    isIosAxisConverted = input_location.get("isIosAxisConverted", 0)
+
+    if (updatedTag == "2015-11-19"):
+
+        location_query.equal_to("objectId", objectId)
+        right_location = location_query.first()
+        lat = right_location.get("location").latitude
+        lng = right_location.get("location").longitude
+
+        if time_before < timestamp < time.timestamp * 1000 and user_id in userids:
+            right_location = wrong_baidu_to_right_baidu({"lat": lat, "lng": lng})
+            lat = right_location["lat"]
+            lng = right_location["lng"]
+            isIosAxisConverted = 1
+
     print timestamp
     user_id = input_location.get("user_id")
-    isIosAxisConverted = input_location.get("isIosAxisConverted", 0)
-    updatedTag = input_location.get("updatedTag", "")
 
     if time_before < timestamp < time.timestamp * 1000 and user_id in userids and isIosAxisConverted == 0:
         right_location = wrong_baidu_to_right_baidu({"lat": lat, "lng": lng})
         lat = right_location["lat"]
         lng = right_location["lng"]
         isIosAxisConverted = 1
-    id = location.get("_id")
+    id = input_location.get("_id")
 
     if updatedTag != defaultTag:
 
@@ -82,27 +125,7 @@ def update_worker(input_location):
         print result.matched_count, "objects updated"
 
 
-# mongodb init
-client = MongoClient("mongodb://senzhub:Senz2everyone@119.254.111.40:27017")
-db = client.RefinedLog
-update_timestamp_one = 1447612625 * 1000
-# senz.log.tracer appid,appkey
-tracer_app_id = "9ra69chz8rbbl77mlplnl4l2pxyaclm612khhytztl8b1f9o"
-tracer_app_key = "1zohz2ihxp9dhqamhfpeaer8nh1ewqd9uephe9ztvkka544b"
-# 找出所有ios用户
-leancloud.init(tracer_app_id, tracer_app_key)
-User = Object.extend("_User")
-user_query = Query(User)
-user_query.equal_to("os", "ios")
-userids = [user.id for user in user_query.find()]
-# 从哪个时间点之前开始更新数据.11-14 中午之前数据有问题。
-axis_wrong_date = '2015-11-14T12:34:00.000+08:00'
-time = arrow.get(axis_wrong_date)
-time_before = 1441036800000
-defaultTag = "2015-11-19"
-cur_ts = arrow.now().timestamp * 1000
-
-cursor = db.UserLocation.find({"timestamp": {"$lt": cur_ts}}).sort("timestamp", -1)
+cursor = db.UserLocation.find({"timestamp": {"$lt": cur_ts}, "updatedTag": "2015-11-19"}).sort("timestamp", -1)
 location_count = cursor.count()
 
 window = 20
@@ -111,7 +134,8 @@ for i in range(location_count / window + 1):
 
     task_list = []
     # for location in db.UserLocation.find({"timestamp": {"$lt": cur_ts}}).sort("timestamp", -1).skip(i * 50).limit(50):
-    for location in db.UserLocation.find({"timestamp": {"$lt": cur_ts}}).sort("timestamp", -1).skip(i * window).limit(
+    for location in db.UserLocation.find({"timestamp": {"$lt": cur_ts}, "updatedTag": "2015-11-19"})\
+            .sort("timestamp", -1).skip(i * window).limit(
             window):
         task_list.append(gevent.spawn(update_worker, location))
     gevent.joinall(task_list)
